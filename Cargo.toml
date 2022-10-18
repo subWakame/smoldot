@@ -12,10 +12,10 @@ keywords = ["blockchain", "peer-to-peer"]
 exclude = [".github", "bin"]  # TODO: we might need to reorganize the repo to avoid including unwanted files
 
 [workspace]
-default-members = [".", "bin/full-node"]
+default-members = [".", "bin/archive-node"]
 members = [
     ".",
-    "bin/full-node",
+    "bin/archive-node",
     "bin/light-base",
     "bin/wasm-node/rust",
 ]
