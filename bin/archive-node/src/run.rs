@@ -22,7 +22,6 @@ use smoldot::{
     chain, chain_spec,
     database::full_sqlite,
     header,
-    identity::keystore,
     informant::HashDisplay,
     libp2p::{
         connection, multiaddr,
@@ -35,7 +34,6 @@ use tracing::Instrument as _;
 mod consensus_service;
 mod database_thread;
 mod jaeger_service;
-mod json_rpc_service;
 mod network_service;
 
 /// Runs the node using the given configuration. Catches `SIGINT` signals and stops if one is
@@ -401,21 +399,6 @@ pub async fn run(cli_options: cli::CliOptionsRun) {
 
     let mut network_events_receivers = network_events_receivers.into_iter();
 
-    let keystore = Arc::new({
-        let mut keystore = keystore::Keystore::new(
-            base_storage_directory
-                .as_ref()
-                .map(|path| path.join(chain_spec.id()).join("keys")),
-            rand::random(),
-        )
-        .await
-        .unwrap();
-        for private_key in cli_options.keystore_memory {
-            keystore.insert_sr25519_memory(keystore::KeyNamespace::all(), &private_key);
-        }
-        keystore
-    });
-
     let consensus_service = consensus_service::ConsensusService::new(consensus_service::Config {
         tasks_executor: &mut |task| threads_pool.spawn_ok(task),
         genesis_block_hash,
@@ -423,9 +406,7 @@ pub async fn run(cli_options: cli::CliOptionsRun) {
         network_service: (network_service.clone(), 0),
         database,
         block_number_bytes: usize::from(chain_spec.block_number_bytes()),
-        keystore,
         jaeger_service: jaeger_service.clone(),
-        slot_duration_author_ratio: 43691_u16,
     })
     .instrument(tracing::debug_span!("consensus-service-init"))
     .await;
@@ -447,18 +428,7 @@ pub async fn run(cli_options: cli::CliOptionsRun) {
                 block_number_bytes: usize::from(
                     relay_chain_spec.as_ref().unwrap().block_number_bytes(),
                 ),
-                keystore: Arc::new(
-                    keystore::Keystore::new(
-                        base_storage_directory
-                            .as_ref()
-                            .map(|path| path.join(chain_spec.id()).join("keys")),
-                        rand::random(),
-                    )
-                    .await
-                    .unwrap(),
-                ),
                 jaeger_service, // TODO: consider passing a different jaeger service with a different service name
-                slot_duration_author_ratio: 43691_u16,
             })
             .instrument(tracing::debug_span!("relay-chain-consensus-service-init"))
             .await,
@@ -466,44 +436,6 @@ pub async fn run(cli_options: cli::CliOptionsRun) {
     } else {
         None
     };
-
-    // Start the JSON-RPC service.
-    // It only needs to be kept alive in order to function.
-    //
-    // Note that initialization can panic if, for example, the port is already occupied. It is
-    // preferable to fail to start the node altogether rather than make the user believe that they
-    // are connected to the JSON-RPC endpoint of the node while they are in reality connected to
-    // something else.
-    let _json_rpc_service = if let Some(bind_address) = cli_options.json_rpc_address.0 {
-        let result = json_rpc_service::JsonRpcService::new(json_rpc_service::Config {
-            tasks_executor: { &mut move |task| threads_pool.spawn_ok(task) },
-            bind_address,
-        })
-        .await;
-
-        Some(match result {
-            Ok(service) => service,
-            Err(err) => panic!("failed to initialize JSON-RPC endpoint: {}", err),
-        })
-    } else {
-        None
-    };
-
-    /*let mut telemetry = {
-        let endpoints = chain_spec
-            .telemetry_endpoints()
-            .map(|addr| (addr.as_ref().to_owned(), 0))
-            .collect::<Vec<_>>();
-
-        smoldot::telemetry::init_telemetry(smoldot::telemetry::TelemetryConfig {
-            endpoints: smoldot::telemetry::TelemetryEndpoints::new(endpoints).unwrap(),
-            wasm_external_transport: None,
-            tasks_executor: {
-                let threads_pool = threads_pool.clone();
-                Box::new(move |task| threads_pool.spawn_obj_ok(From::from(task))) as Box<_>
-            },
-        })
-    };*/
 
     tracing::info!(
         %local_peer_id, database_is_new = %!database_existed,

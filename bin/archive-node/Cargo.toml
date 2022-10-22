@@ -1,5 +1,5 @@
 [package]
-name = "smoldot-full-node"
+name = "smoldot-archive-node"
 version = "0.1.0"
 authors = ["Parity Technologies <admin@parity.io>", "Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Substrate/Polkadot full node using smoldot"
